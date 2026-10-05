@@ -107,7 +107,7 @@ TABS: dict[str, list[str]] = {
               "TELEGRAM_VOICE_ALL", "TELEGRAM_LETTERS_IN_THREAD", "SLEEP_IN_BRIDGE", "SLEEP_IN_BRIDGE_QUIET_MIN"],
     "Senses": ["EARS_MODEL", "EARS_STT_MODEL", "EARS_UNLOAD_BRAIN",
                "VOICE_NAME", "VOICE_SPEED", "VOICE_DEVICE", "VOICE_PYTHON",
-               "PAINTER_MODEL", "PAINTER_AUTOSTART", "PAINTER_PYTHON", "PAINTER_DEVICE", "PAINTER_STEPS",
+               "PAINTER_MODEL", "PAINTER_AUTOSTART", "PAINTER_PYTHON", "PAINTER_DEVICE", "PAINTER_STEPS", "PAINTER_OFFLOAD",
                "MUSIC_EARS_MODEL", "MUSIC_EARS_OLLAMA", "MUSIC_EARS_AUTOSTART", "MUSIC_EARS_PYTHON", "MUSIC_EARS_DEVICE",
                "BODY_IN_PROMPT", "BODY_AUTOPULL", "BODY_PULL_MIN",
                "TOUCHSTONE_URL", "TOUCHSTONE_BOARD", "TOUCHSTONE_POLL_S", "TOUCHSTONE_WAKES", "TOUCHSTONE_WAKE_MIN_GAP_S",
@@ -342,6 +342,9 @@ _HELP = {
     "PAINTER_DEVICE": "Where it paints: \"auto\" takes an NVIDIA (or ROCm) card, else a Mac's GPU, else the processor "
                       "(slow); \"cuda\", \"mps\" or \"cpu\" names one.",
     "PAINTER_STEPS": "Diffusion steps per picture; 0 is the model's own default (Z-Image-Turbo 9, FLUX.2 klein 4).",
+    "PAINTER_OFFLOAD": "For a card smaller than the model: each part of the pipeline takes the card only while it works, so "
+                       "the peak is the biggest part (FLUX.2 klein about 8 GB), not the whole (about 16 GB). A little "
+                       "slower; the machine needs the model's size in free RAM.",
     "MUSIC_EARS_MODEL": "The music ear's model on Hugging Face (Music Flamingo). The licence is accepted there once.",
     "MUSIC_EARS_OLLAMA": "The music ear as an Ollama model instead of the sidecar — no torch, about 6.5 GB on the card, Ollama "
                          "sharing it with the brain: e.g. \"hf.co/henry1477/music-flamingo-gguf:Q6_K\" (ollama pull it first). "
@@ -450,7 +453,7 @@ SENSES: list[dict] = [
      "they call it; the brain steps off the card and reads its window cold after — the real price of a painting",
      "modules": ["torch", "diffusers", "PIL"], "tools": [], "python": "PAINTER_PYTHON",
      "pip": "-U diffusers transformers accelerate safetensors pillow (torch first — README)",
-     "knobs": ["PAINTER_MODEL", "PAINTER_AUTOSTART", "PAINTER_PYTHON", "PAINTER_DEVICE", "PAINTER_STEPS"],
+     "knobs": ["PAINTER_MODEL", "PAINTER_AUTOSTART", "PAINTER_PYTHON", "PAINTER_DEVICE", "PAINTER_STEPS", "PAINTER_OFFLOAD"],
      "readme": "their-senses-and-hands"},
     {"key": "music", "name": "The music ear", "what": "a song heard whole by Music Flamingo (8B, ~16 GB of VRAM to itself): genre, "
      "tempo, key, how the piece moves; without it a long piece is heard in passages by the brain",
@@ -955,6 +958,15 @@ def senses_state(values: dict | None = None) -> list[dict]:
             url = str(values.get("TOUCHSTONE_URL", getattr(config, "TOUCHSTONE_URL", "")) or "").strip().strip('"')
             ready = bool(url)
             note = f"named — its keeper at {url}; the door is on Home" if url else "no stone in this house — TOUCHSTONE_URL names its keeper when a board is on the desk"
+        if sn["key"] == "painter":
+            purl = str(values.get("PAINTER_URL", getattr(config, "PAINTER_URL", "")) or "").strip().strip('"')
+            if purl and not re.match(r"https?://(127\.0\.0\.1|localhost)(:|/|$)", purl):
+                # a painter of its own elsewhere (a container with the card): asked, not looked for here
+                h = _ollama("/health", purl)
+                if h and h.get("ok"):
+                    ready, note = True, f"in a place of its own — {purl} ({h.get('model', '?')})"
+                else:
+                    ready, note = None, f"set to {purl} — not answering there yet"
         if sn["key"] == "music":
             om = str(values.get("MUSIC_EARS_OLLAMA", getattr(config, "MUSIC_EARS_OLLAMA", "")) or "").strip().strip('"')
             if om:  # through Ollama: nothing of the sidecar's is needed, only the model pulled

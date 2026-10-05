@@ -214,6 +214,10 @@ PAINTER_IDLE_S = 120          # seconds; fallback: the sidecar frees the GPU aft
 PAINTER_EXIT_S = 1800         # seconds unused before the sidecar process exits
 PAINTER_TIMEOUT_S = 300       # seconds allowed for one painting, model load included
 PAINTER_STEPS = 0             # 0 = the model's default (Z-Image-Turbo 9, FLUX.2 klein 4)
+# A card smaller than the model: each part of the pipeline waits in the machine's memory and takes the card
+# only while it works — the peak is the biggest part (FLUX.2 klein's ~8 GB), not the sum (~16 GB). A little
+# slower per picture, and the machine needs the whole model's size in free RAM.
+PAINTER_OFFLOAD = False
 # Pixel sizes for the size words (Full HD by default). Sides snap to multiples
 # of 16, so "wide" becomes 1920×1088. These models paint about two megapixels
 # cleanly; larger sizes cost more and may duplicate the subject. Words may be

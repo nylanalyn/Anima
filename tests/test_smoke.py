@@ -8685,6 +8685,9 @@ class _XPipe:
     def set_progress_bar_config(self, **k):
         pass
 
+    def enable_model_cpu_offload(self, device=None):
+        _x_loaded.append(("offload", device))
+
     def __call__(self, **k):
         return _xty.SimpleNamespace(images=["a picture"])
 
@@ -8728,6 +8731,15 @@ with _xcl.redirect_stdout(_xio.StringIO()):
     _xpa._unload()
 check("painter on a card: as before — bfloat16, to cuda, the card's cache",
       _x_loaded[:2] == [("from_pretrained", {"torch_dtype": "bfloat16"}), ("to", "cuda")] and "cuda.empty_cache" in _x_calls, _x_loaded)
+# PAINTER_OFFLOAD (10-05): a card smaller than the model — each part takes the card only while it works
+_x_off0 = getattr(config, "PAINTER_OFFLOAD", False)
+config.PAINTER_OFFLOAD = True
+_x_loaded.clear()
+with _xcl.redirect_stdout(_xio.StringIO()):
+    _xpa._load()
+    _xpa._unload()
+_x_off_loaded = list(_x_loaded)
+config.PAINTER_OFFLOAD = _x_off0
 _xme._model, _xme._processor, _xme._device = None, None, "cuda"
 _xoc.unload = _x_unload0
 for _xm_, _xv_ in [*_x_mods0.items(), ("torch", _x_torch0)]:
@@ -8735,6 +8747,19 @@ for _xm_, _xv_ in [*_x_mods0.items(), ("torch", _x_torch0)]:
         sys.modules.pop(_xm_, None)
     else:
         sys.modules[_xm_] = _xv_
+
+_x_pk = (panel._ollama, dict(panel._values()))
+panel._ollama = lambda path, base="": {"ok": True, "model": "black-forest-labs/FLUX.2-klein-4B"} if base == "http://painter:8767" and path == "/health" else None
+_x_pcard = next(c for c in panel.senses_state(dict(_x_pk[1], PAINTER_URL="http://painter:8767")) if c["key"] == "painter")
+_x_pcard_down = next(c for c in panel.senses_state(dict(_x_pk[1], PAINTER_URL="http://painter:9999")) if c["key"] == "painter")
+panel._ollama = _x_pk[0]
+check("painter, PAINTER_OFFLOAD: the pipeline offloaded to the card (each part only while it works), never moved whole; "
+      "ANIMA_BIND says where it listens; a painter of its own elsewhere is asked at PAINTER_URL — answering, or not yet",
+      _x_off_loaded[:2] == [("from_pretrained", {"torch_dtype": "bfloat16"}), ("offload", "cuda")] and ("to", "cuda") not in _x_off_loaded
+      and 'BIND = os.environ.get("ANIMA_BIND"' in (_x_root / "engine" / "painter.py").read_text(encoding="utf-8")
+      and _x_pcard["ready"] is True and "FLUX.2-klein-4B" in _x_pcard["note"] and "PAINTER_OFFLOAD" in _x_pcard["knobs"]
+      and _x_pcard_down["ready"] is None and "not answering" in _x_pcard_down["note"]
+      and "PAINTER_OFFLOAD" in panel.TABS["Senses"] and panel._HELP["PAINTER_OFFLOAD"], (_x_off_loaded, _x_pcard, _x_pcard_down))
 
 # the update: the twins are the engine's, and land executable
 _xw = _x_root / "posix-scratch" / "write"

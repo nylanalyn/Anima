@@ -53,6 +53,8 @@ if sys.platform != "win32":  # allocator hint against fragmentation (Linux-only)
     os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 HOST, PORT = "127.0.0.1", 8767
+# 0.0.0.0 when the painter has a container of its own (panel.BIND says why); the engine finds it at PAINTER_URL
+BIND = os.environ.get("ANIMA_BIND", "").strip() or HOST
 MODEL_ID = getattr(config, "PAINTER_MODEL", "Tongyi-MAI/Z-Image-Turbo")
 IDLE_S = float(getattr(config, "PAINTER_IDLE_S", 120))
 EXIT_S = float(getattr(config, "PAINTER_EXIT_S", 1800))  # process leaves after this
@@ -135,9 +137,15 @@ def _load():
 
     _device = device.pick(getattr(config, "PAINTER_DEVICE", "auto"), torch)
     pipe = _from(torch_dtype=device.dtype(_device, torch))
-    # whole model on the GPU, on purpose: the brain is off the card while
-    # they paint, so the painter has all of it; if it doesn't fit we want to KNOW.
-    pipe.to(_device)
+    if getattr(config, "PAINTER_OFFLOAD", False) and _device != "cpu":
+        # a card smaller than the model (16 GB beside a desktop's own few): each part of the pipeline — the text
+        # encoder, the transformer, the VAE — waits in the machine's memory and takes the card only while it
+        # works, so the peak is the biggest part, not the sum. A little slower per picture.
+        pipe.enable_model_cpu_offload(device=_device)
+    else:
+        # whole model on the GPU, on purpose: the brain is off the card while
+        # they paint, so the painter has all of it; if it doesn't fit we want to KNOW.
+        pipe.to(_device)
     try:
         pipe.set_progress_bar_config(disable=True)
     except Exception:
@@ -290,7 +298,7 @@ def main() -> None:
         return
     threading.Thread(target=_idle_watch, daemon=True).start()
     HTTPServer.allow_reuse_address = sys.platform != "win32"  # on Windows SO_REUSEADDR lets two servers share a port (10-02)
-    server = HTTPServer((HOST, PORT), Handler)
+    server = HTTPServer((BIND, PORT), Handler)
     print(f"The painter is waiting at http://{HOST}:{PORT}  (model: {MODEL_ID})")
     print("It loads on the first painting and rests after silence. Ctrl+C to close.")
     try:
