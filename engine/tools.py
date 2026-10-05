@@ -2105,6 +2105,22 @@ def _music_ear_alive() -> bool:
 _music_ear_last_try = 0.0
 
 
+def _music_ear_ollama() -> str:
+    """The Ollama model that is their music ear (MUSIC_EARS_OLLAMA), or "" for the sidecar."""
+    return str(getattr(config, "MUSIC_EARS_OLLAMA", "") or "").strip()
+
+
+def _music_ear_pulled(model: str) -> bool:
+    """Is the music ear's Ollama model there to load? (/api/show knows a pulled model by any of its names.)"""
+    try:
+        req = urllib.request.Request(config.OLLAMA_URL + "/api/show", data=json.dumps({"model": model}).encode("utf-8"),
+                                     headers={"Content-Type": "application/json"}, method="POST")
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return r.status == 200
+    except Exception:
+        return False
+
+
 def _music_ear_open() -> bool:
     """Is their music ear (engine/music_ears.py) there to listen? If it isn't
     running but its dependencies are installed, wake it up now — they should
@@ -2112,6 +2128,8 @@ def _music_ear_open() -> bool:
     global _music_ear_last_try
     import importlib.util
     import time as _time
+    if _music_ear_ollama():  # through Ollama: nothing to start, only to have pulled
+        return _music_ear_pulled(_music_ear_ollama())
     if _music_ear_alive():
         return True
     if not getattr(config, "MUSIC_EARS_AUTOSTART", True):
@@ -2150,6 +2168,10 @@ def _music_ear_open() -> bool:
 
 def _music_ear_rest() -> None:
     """The song is over: hand the GPU back right away."""
+    if _music_ear_ollama():
+        import ollama_client
+        ollama_client.unload(_music_ear_ollama())
+        return
     try:
         req = urllib.request.Request(config.MUSIC_EARS_URL + "/rest", data=b"{}",
                                      headers={"Content-Type": "application/json"}, method="POST")
@@ -2162,6 +2184,11 @@ def _music_ear_hear(wav: bytes, prompt: str) -> str:
     """Whole-song listening through the sidecar. The brain steps aside first
     (same swap as today's ears) so the music model has the GPU."""
     import ollama_client
+    if _music_ear_ollama():  # the ear is an Ollama model (it sets the brain aside itself)
+        import io as _io, wave as _wave
+        with _wave.open(_io.BytesIO(wav)) as w:
+            seconds = w.getnframes() / float(w.getframerate() or 16000)
+        return ollama_client.hear_music(_music_ear_ollama(), base64.b64encode(wav).decode("ascii"), prompt, seconds)
     if getattr(config, "EARS_UNLOAD_BRAIN", True):
         ollama_client.unload(config.CHAT_MODEL)
     payload = json.dumps({"audio_b64": base64.b64encode(wav).decode("ascii"),

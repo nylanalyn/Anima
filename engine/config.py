@@ -104,6 +104,14 @@ WATCH_SHEET_TILE_WIDTH = 512
 # Not installed: the ears fall back to passages (EARS_MAX_PASSAGES).
 MUSIC_EARS_URL = "http://127.0.0.1:8766"
 MUSIC_EARS_MODEL = "nvidia/music-flamingo-2601-hf"  # older tag: nvidia/music-flamingo-hf
+# Or the music ear through Ollama — no sidecar, no torch, and Ollama shares the card (the brain steps aside
+# while it listens): an Ollama model that hears music, e.g. Music Flamingo as a GGUF with its audio projector,
+# about 6.5 GB on the card:
+#   ollama pull hf.co/henry1477/music-flamingo-gguf:Q6_K
+#   MUSIC_EARS_OLLAMA = "hf.co/henry1477/music-flamingo-gguf:Q6_K"
+# Those GGUFs (of the model's preview) sometimes put a stray word or symbol in a sentence; the engine mends the
+# ones it knows. Empty: the sidecar above, or passages when it isn't installed.
+MUSIC_EARS_OLLAMA = ""
 MUSIC_EARS_AUTOSTART = True   # listen_to starts the sidecar when needed
 # Which Python runs the ear; "" = the engine's own. PyTorch's CUDA builds can
 # lag the newest Python release, so the ear may need its own, e.g.

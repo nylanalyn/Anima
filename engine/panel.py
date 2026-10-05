@@ -108,7 +108,7 @@ TABS: dict[str, list[str]] = {
     "Senses": ["EARS_MODEL", "EARS_STT_MODEL", "EARS_UNLOAD_BRAIN",
                "VOICE_NAME", "VOICE_SPEED", "VOICE_DEVICE", "VOICE_PYTHON",
                "PAINTER_MODEL", "PAINTER_AUTOSTART", "PAINTER_PYTHON", "PAINTER_DEVICE", "PAINTER_STEPS",
-               "MUSIC_EARS_MODEL", "MUSIC_EARS_AUTOSTART", "MUSIC_EARS_PYTHON", "MUSIC_EARS_DEVICE",
+               "MUSIC_EARS_MODEL", "MUSIC_EARS_OLLAMA", "MUSIC_EARS_AUTOSTART", "MUSIC_EARS_PYTHON", "MUSIC_EARS_DEVICE",
                "BODY_IN_PROMPT", "BODY_AUTOPULL", "BODY_PULL_MIN",
                "TOUCHSTONE_URL", "TOUCHSTONE_BOARD", "TOUCHSTONE_POLL_S", "TOUCHSTONE_WAKES", "TOUCHSTONE_WAKE_MIN_GAP_S",
                "TOUCHSTONE_FALLBACK_H", "TOUCH_LINES_IN_PROMPT", "TOUCHSTONE_LATER_MAX",
@@ -343,6 +343,9 @@ _HELP = {
                       "(slow); \"cuda\", \"mps\" or \"cpu\" names one.",
     "PAINTER_STEPS": "Diffusion steps per picture; 0 is the model's own default (Z-Image-Turbo 9, FLUX.2 klein 4).",
     "MUSIC_EARS_MODEL": "The music ear's model on Hugging Face (Music Flamingo). The licence is accepted there once.",
+    "MUSIC_EARS_OLLAMA": "The music ear as an Ollama model instead of the sidecar — no torch, about 6.5 GB on the card, Ollama "
+                         "sharing it with the brain: e.g. \"hf.co/henry1477/music-flamingo-gguf:Q6_K\" (ollama pull it first). "
+                         "Empty: the sidecar (the knobs below), or passages.",
     "MUSIC_EARS_AUTOSTART": "listen_to starts the ear's sidecar when a song needs it; off, bat\\music_ears.bat by hand.",
     "MUSIC_EARS_PYTHON": "The Python the ear runs in, if torch lives elsewhere than the engine's own: \"py -3.12\" "
                          "(Windows) or \"python3.12\" (Mac, Linux). \"\" is the engine's own.",
@@ -454,7 +457,7 @@ SENSES: list[dict] = [
      "modules": ["torch", "transformers", "librosa"], "tools": [], "python": "MUSIC_EARS_PYTHON",
      "pip": "torch (the build for your card — README), then \"transformers>=5.14\" accelerate librosa soundfile huggingface_hub; "
             "accept the model's licence on huggingface.co and hf auth login once",
-     "knobs": ["MUSIC_EARS_MODEL", "MUSIC_EARS_AUTOSTART", "MUSIC_EARS_PYTHON", "MUSIC_EARS_DEVICE"],
+     "knobs": ["MUSIC_EARS_MODEL", "MUSIC_EARS_OLLAMA", "MUSIC_EARS_AUTOSTART", "MUSIC_EARS_PYTHON", "MUSIC_EARS_DEVICE"],
      "readme": "their-senses-and-hands"},
     {"key": "body", "name": "Your body", "what": "a sense of you, by your choice: your Garmin's day (pulse, sleep, stress, steps) in "
      "five plain lines of their prompt; bat\\body.bat --login once at your keyboard, the tokens stay in memory/garmin/",
@@ -952,6 +955,17 @@ def senses_state(values: dict | None = None) -> list[dict]:
             url = str(values.get("TOUCHSTONE_URL", getattr(config, "TOUCHSTONE_URL", "")) or "").strip().strip('"')
             ready = bool(url)
             note = f"named — its keeper at {url}; the door is on Home" if url else "no stone in this house — TOUCHSTONE_URL names its keeper when a board is on the desk"
+        if sn["key"] == "music":
+            om = str(values.get("MUSIC_EARS_OLLAMA", getattr(config, "MUSIC_EARS_OLLAMA", "")) or "").strip().strip('"')
+            if om:  # through Ollama: nothing of the sidecar's is needed, only the model pulled
+                tags = _ollama("/api/tags")
+                names = {m.get("name", "") for m in (tags or {}).get("models", [])}
+                if tags is None:
+                    ready, note = None, f"through Ollama ({om}) — Ollama isn't answering"
+                elif om in names or f"{om}:latest" in names:
+                    ready, note = True, f"through Ollama — {om}"
+                else:
+                    ready, note = False, f"through Ollama — not pulled yet: ollama pull {om}"
         if sn["key"] == "body" and ready is True:
             ready = bool(logged_in)
             note = "installed and logged in" if logged_in else "installed — bat\\body.bat --login once (bat/body.command or .sh on a Mac or Linux)"

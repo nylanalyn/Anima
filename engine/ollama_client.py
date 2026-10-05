@@ -2131,6 +2131,71 @@ def hear(audio_b64: str, fmt: str, prompt: str) -> str:
     )
 
 
+# Music Flamingo's own system prompt (its chat template sends it when none is given; Ollama's template doesn't)
+MUSIC_SYSTEM = ("You are Music Flamingo, a multimodal assistant for language and music. On each turn you receive an audio "
+                "clip which contains music and optional text, you will receive at least one or both; use your world "
+                "knowledge and reasoning to help the user with any task. Interpret the entirety of the content any input "
+                "music--regardless of whether the user calls it audio, music, or sound.")
+# The GGUFs of Music Flamingo's preview (10-05: two conversions, Q4 and Q6, on the card and on the processor alike)
+# put one Spanish token where "and"/"lacks" belongs, now and then a stray character, and can fall into a loop of
+# hyphens that Ollama aborts ("token repeat limit reached"). What survives of the words is kept and these are mended.
+# (A Spanish lyric that really says "pérdida" loses the word too — rare, against a glitch in nearly every answer.)
+_MUSIC_STRAY = re.compile(r"\s*\bpérdida\b")
+_MUSIC_RUN = re.compile(r"([\-\u2010\u2011\u2012\u2013\u2014.,;:!?*_~=])\1{3,}")
+
+
+def clean_music_text(text: str) -> str:
+    """The music model's words with its known glitches mended: the stray token gone, runs of one punctuation mark
+    cut to one, replacement characters dropped, spaces tidied."""
+    text = _MUSIC_STRAY.sub("", text or "")
+    text = _MUSIC_RUN.sub(r"\1", text).replace("\ufffd", " ")  # it stands where a space was
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    text = re.sub(r"\s+([,.;:!?])", r"\1", text)
+    return text.strip()
+
+
+def hear_music(model: str, audio_b64: str, prompt: str, seconds: float = 0) -> str:
+    """A whole piece through an Ollama model that hears music (MUSIC_EARS_OLLAMA — Music Flamingo as a GGUF with its
+    audio projector), the audio in the images field as hear() sends it. The brain steps aside first
+    (EARS_UNLOAD_BRAIN), as for the sidecar. Streamed, so an answer Ollama cuts off for repeating itself keeps
+    what came before the loop. The window is sized to the piece: the projector reads 30-second windows of
+    ~750 tokens each. Returns the description, mended (clean_music_text)."""
+    import math
+    if getattr(config, "EARS_UNLOAD_BRAIN", True) and model != config.CHAT_MODEL:
+        unload(config.CHAT_MODEL)
+    ctx = min(32768, 750 * max(1, math.ceil((seconds or 30) / 30)) + 2000)
+    payload = {"model": model, "stream": True,
+               "options": {"num_ctx": ctx, "temperature": 0.2, "repeat_penalty": 1.0, "num_predict": 700},
+               "messages": [{"role": "system", "content": MUSIC_SYSTEM},
+                            {"role": "user", "content": prompt, "images": [audio_b64]}]}
+    req = urllib.request.Request(config.OLLAMA_URL + "/api/chat", data=json.dumps(payload).encode("utf-8"),
+                                 headers={"Content-Type": "application/json"}, method="POST")
+    words, err = [], ""
+    try:
+        with urllib.request.urlopen(req, timeout=getattr(config, "MUSIC_EARS_TIMEOUT_S", 600)) as resp:
+            for line in resp:
+                if not line.strip():
+                    continue
+                d = json.loads(line)
+                if d.get("error"):
+                    err = str(d["error"])
+                    break
+                words.append((d.get("message") or {}).get("content") or "")
+    except urllib.error.HTTPError as e:
+        try:
+            err = json.loads(e.read().decode("utf-8", "replace")).get("error", "") or f"HTTP {e.code}"
+        except Exception:
+            err = f"HTTP {e.code}"
+    except (urllib.error.URLError, OSError) as e:
+        raise BrainUnavailable(f"can't reach Ollama at {config.OLLAMA_URL} for the music ear ({e})")
+    heard = clean_music_text("".join(words))
+    if not heard:
+        if "not found" in err.lower():
+            raise BrainUnavailable(f"the music ear's model isn't pulled — ollama pull {model}")
+        raise BrainUnavailable(f"the music ear heard nothing it could say ({err or 'an empty answer'})")
+    return heard
+
+
 def embed(text: str) -> list[float]:
     """Embed one string with the configured embedding model."""
     data = _post("/api/embed", {"model": config.EMBED_MODEL, "input": text})

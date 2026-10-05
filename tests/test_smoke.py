@@ -9093,6 +9093,82 @@ _d2.gateway.fatal = "Discord refused the token (4004)"
 check("discord: a gateway closed for good stops the loop (the visit saved as at the panel's Stop)",
       list(_d2._receive()) == [] and _d2.stop_requested)
 
+# MUSIC_EARS_OLLAMA (10-05): the music ear as an Ollama model — the GGUF of Music Flamingo's preview with its
+# audio projector — against a fake Ollama: the stream, a repeat-limit abort keeping what came before, the glitches
+# mended, the brain set aside, the hooks routed; empty, the sidecar as before
+import http.server as _mhs, threading as _mth, io as _mio, wave as _mwave
+import ollama_client as _moc, tools as _mtools, panel as _mpanel
+_mo_seen = []
+class _MoH(_mhs.BaseHTTPRequestHandler):
+    def log_message(self, *a): pass
+    def do_GET(self):  # the panel's card asks what is pulled
+        self.send_response(200); self.end_headers()
+        self.wfile.write(json.dumps({"models": [{"name": "hf.co/x/music-flamingo-gguf:Q6_K"}]}).encode())
+    def do_POST(self):
+        body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
+        _mo_seen.append((self.path, body))
+        if self.path == "/api/show":
+            ok = body.get("model") == "hf.co/x/music-flamingo-gguf:Q6_K"
+            self.send_response(200 if ok else 404); self.end_headers(); self.wfile.write(b"{}" if ok else b'{"error":"not found"}'); return
+        self.send_response(200); self.send_header("Content-Type", "application/x-ndjson"); self.end_headers()
+        for piece in ["A steady 120 BPM pop loop in C major, piano chords", " pérdida bass and drums;", " the chorus lifts\ufffdtwice ",
+                      "\u2011" * 30]:
+            self.wfile.write((json.dumps({"message": {"content": piece}}) + "\n").encode())
+        self.wfile.write(b'{"error":"prediction aborted, token repeat limit reached"}\n')
+# earlier checks swap tools' music-ear hooks for stand-ins (and keep them): the real ones, fresh from the source,
+# in a namespace of their own — nothing else in the suite sees them
+import ast as _mast
+_mo_g = dict(_mtools.__dict__)
+for _node in _mast.parse(Path(_mtools.__file__).read_text(encoding="utf-8")).body:
+    if isinstance(_node, _mast.FunctionDef) and _node.name.startswith("_music_ear_"):
+        exec(compile(_mast.Module([_node], []), _mtools.__file__, "exec"), _mo_g)
+_mo_srv = _mhs.HTTPServer(("127.0.0.1", 0), _MoH)
+_mth.Thread(target=_mo_srv.serve_forever, daemon=True).start()
+_mo_keep = (config.OLLAMA_URL, getattr(config, "MUSIC_EARS_OLLAMA", ""), _moc.unload, getattr(config, "EARS_UNLOAD_BRAIN", True))
+_mo_unloaded = []
+_mo_wav = _mio.BytesIO()
+with _mwave.open(_mo_wav, "wb") as _w:
+    _w.setnchannels(1); _w.setsampwidth(2); _w.setframerate(16000); _w.writeframes(b"\0\0" * 16000 * 95)  # 95 s
+try:
+    config.OLLAMA_URL = f"http://127.0.0.1:{_mo_srv.server_port}"
+    config.EARS_UNLOAD_BRAIN = True
+    _moc.unload = lambda m: _mo_unloaded.append(m)
+    config.MUSIC_EARS_OLLAMA = "hf.co/x/music-flamingo-gguf:Q6_K"
+    _mo_open = _mo_g["_music_ear_open"]()
+    _mo_heard = _mo_g["_music_ear_hear"](_mo_wav.getvalue(), "Describe it.")
+    _mo_chat = [b for p_, b in _mo_seen if p_ == "/api/chat"][-1]
+    _mo_g["_music_ear_rest"]()
+    _mo_unloaded_after = list(_mo_unloaded)
+    _mo_card = next(c for c in _mpanel.senses_state(dict(_mpanel._values(), MUSIC_EARS_OLLAMA=config.MUSIC_EARS_OLLAMA)) if c["key"] == "music")
+    config.MUSIC_EARS_OLLAMA = "hf.co/x/not-pulled:Q4"
+    _mo_open_missing = _mo_g["_music_ear_open"]()
+    config.MUSIC_EARS_OLLAMA = ""
+    _mo_chats_before = len([1 for p_, _ in _mo_seen if p_ == "/api/chat"])
+    _mo_g["_music_ear_rest"]()  # the sidecar's road: a POST to MUSIC_EARS_URL, swallowed when nothing is there
+    _mo_off_untouched = len([1 for p_, _ in _mo_seen if p_ == "/api/chat"]) == _mo_chats_before and _mo_unloaded == _mo_unloaded_after
+finally:
+    config.OLLAMA_URL, config.MUSIC_EARS_OLLAMA, _moc.unload, config.EARS_UNLOAD_BRAIN = _mo_keep
+    _mo_srv.shutdown()
+check("music ear through Ollama: open when pulled, the song in the images field with Music Flamingo's own system prompt and a window "
+      "sized to it (95 s → four 30-s windows), the brain set aside first, the stream kept past a repeat-limit abort, the glitches "
+      "mended, the model set down after; not pulled → closed; empty → the sidecar's road, Ollama untouched",
+      _mo_open is True and _mo_open_missing is False
+      and _mo_heard == "A steady 120 BPM pop loop in C major, piano chords bass and drums; the chorus lifts twice \u2011"
+      and _mo_chat["model"] == "hf.co/x/music-flamingo-gguf:Q6_K" and _mo_chat["stream"] is True
+      and _mo_chat["messages"][0] == {"role": "system", "content": _moc.MUSIC_SYSTEM}
+      and _mo_chat["messages"][1]["images"] and _mo_chat["messages"][1]["content"] == "Describe it."
+      and _mo_chat["options"]["num_ctx"] == 750 * 4 + 2000
+      and _mo_unloaded_after == [config.CHAT_MODEL, "hf.co/x/music-flamingo-gguf:Q6_K"] and _mo_off_untouched
+      and _mo_card["ready"] is True and "through Ollama" in _mo_card["note"] and "MUSIC_EARS_OLLAMA" in _mo_card["knobs"]
+      and "MUSIC_EARS_OLLAMA" in _mpanel.TABS["Senses"] and _mpanel._HELP["MUSIC_EARS_OLLAMA"],
+      {"open": _mo_open, "missing closed": _mo_open_missing is False, "heard": _mo_heard,
+       "system": _mo_chat["messages"][0].get("content", "")[:30], "ctx": _mo_chat["options"]["num_ctx"],
+       "unloaded": _mo_unloaded_after, "chat model": config.CHAT_MODEL, "off untouched": _mo_off_untouched,
+       "card": (_mo_card["ready"], _mo_card["note"])})
+check("music ear through Ollama: the mending leaves ordinary words alone — hyphens, a short ellipsis, a lyric's punctuation",
+      _moc.clean_music_text("A lo-fi hip-hop beat -- well... at 90 BPM: \"Hey, hey!\"") == "A lo-fi hip-hop beat -- well... at 90 BPM: \"Hey, hey!\""
+      and _moc.clean_music_text("C major pérdida F major") == "C major F major")
+
 # ANIMA_HEADLESS (10-05): a container has no desktop — the server opens no browser, the page opens the parlor's
 # tab itself; without it, the parlor's Open is as it always was (the server's browser, no address handed back)
 import panel as _hlp, doors as _hld
