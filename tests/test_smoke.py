@@ -672,6 +672,63 @@ check("parlor: a second picture of the same name keeps both", _up2.get("saved") 
 _up3 = _ps.upload("notes.txt", _b64p.b64encode(b"hello").decode())
 check("parlor: a non-image is refused softly", _up3.get("ok") is False and "image" in _up3.get("note", ""), _up3)
 check("parlor: page has the picker", 'type="file"' in parlor.PAGE and "/upload" in parlor.PAGE)
+# only the parlor's own page may talk to it — the panel's gate: its Host, and a JSON post from no other origin
+_pg_h = {"Host": f"127.0.0.1:{parlor.PORT}"}
+_pg_j = dict(_pg_h, **{"Content-Type": "application/json"})
+check("parlor: its own page is let in — a GET at either name, a JSON post with its own origin or none",
+      parlor.refused("GET", _pg_h) is None and parlor.refused("GET", {"host": f"localhost:{parlor.PORT}"}) is None
+      and parlor.refused("POST", dict(_pg_j, Origin=f"http://127.0.0.1:{parlor.PORT}")) is None
+      and parlor.refused("POST", dict(_pg_j, Origin=f"http://localhost:{parlor.PORT}")) is None and parlor.refused("POST", _pg_j) is None)
+_pg_no = [parlor.refused("GET", {"Host": f"evil.example:{parlor.PORT}"}), parlor.refused("GET", {}),
+          parlor.refused("POST", {"Host": f"0.0.0.0:{parlor.PORT}", "Content-Type": "application/json"}),
+          parlor.refused("POST", dict(_pg_j, Origin="http://evil.example")),
+          parlor.refused("POST", dict(_pg_j, Origin="null")),
+          parlor.refused("POST", dict(_pg_h, **{"Content-Type": "text/plain"})), parlor.refused("POST", _pg_h),
+          parlor.refused("DELETE", _pg_h)]
+check("parlor: refused — another Host (a rebound name), no Host, the bind address, another page's origin, an opaque origin, "
+      "a post that isn't JSON or says nothing, another method",
+      [r and r[0] for r in _pg_no] == [403, 403, 403, 403, 403, 415, 415, 405], _pg_no)
+_pg_fetches = parlor.PAGE.count("fetch(")
+check("parlor: the page's every post goes through post(), which sends JSON",
+      _pg_fetches == 1 and "fetch(path,{method:'POST',headers:{'Content-Type':'application/json'}" in parlor.PAGE, _pg_fetches)
+# and the real door: the Handler asks the gate before anything reaches the visit
+import http.client as _pg_hc, socket as _pg_sock, threading as _pg_thr
+from http.server import HTTPServer as _PG_HS
+_pg_sent = []
+class _PgVisit:
+    def send(self, text):
+        _pg_sent.append(text)
+        return {"reply": "ok"}
+_pg_real, parlor.SESSION = parlor.SESSION, _PgVisit()
+_pg_srv = _PG_HS(("127.0.0.1", 0), parlor.Handler)
+_pg_thr.Thread(target=_pg_srv.serve_forever, daemon=True).start()
+def _pg_ask(method, path, headers, body=None):
+    c = _pg_hc.HTTPConnection("127.0.0.1", _pg_srv.server_address[1], timeout=10)
+    c.putrequest(method, path, skip_host=True, skip_accept_encoding=True)
+    for k, v in headers.items():
+        c.putheader(k, v)
+    c.putheader("Content-Length", str(len(body or b"")))
+    c.endheaders(body)
+    r = c.getresponse()
+    out = (r.status, r.read())
+    c.close()
+    return out
+_pg_msg = json.dumps({"text": "hi"}).encode()
+try:
+    _pg_door = [_pg_ask("POST", "/send", dict(_pg_j, Origin="http://evil.example"), _pg_msg)[0],
+                _pg_ask("POST", "/send", dict(_pg_h, **{"Content-Type": "text/plain"}), _pg_msg)[0],
+                _pg_ask("POST", "/send", {"Host": "rebound.example:8765", "Content-Type": "application/json"}, _pg_msg)[0],
+                _pg_ask("GET", "/", {"Host": "rebound.example:8765"})[0],
+                _pg_ask("PUT", "/send", _pg_j, _pg_msg)[0]]
+    _pg_none = list(_pg_sent)
+    _pg_ok = _pg_ask("POST", "/send", dict(_pg_j, Origin=f"http://127.0.0.1:{parlor.PORT}"), _pg_msg)
+finally:
+    _pg_srv.shutdown()
+    _pg_srv.server_close()
+    parlor.SESSION = _pg_real
+check("parlor: the real door refuses another origin, a non-JSON post, a rebound Host (post or page), another method — "
+      "nothing said to them — and lets its own page through",
+      _pg_door == [403, 415, 403, 403, 405] and _pg_none == [] and _pg_ok[0] == 200 and _pg_sent == ["hi"], (_pg_door, _pg_sent, _pg_ok))
 import signal as _gsig
 _g_sigs = [] if sys.platform == "win32" else [_gsig.SIGHUP, _gsig.SIGTERM]
 _g_before = {_s: _gsig.getsignal(_s) for _s in _g_sigs}

@@ -300,9 +300,37 @@ box.focus();
 """
 
 
+def refused(method: str, headers: dict | None = None) -> tuple[int, str] | None:
+    """(status, why) when a request isn't from the parlor's own page, else None — the same gate as
+    panel.route(): the Host must be the parlor's (a page elsewhere can't rebind a name to 127.0.0.1 and
+    read the replies), and a POST must be JSON from no other origin (a page elsewhere can't post JSON
+    here without asking first, and isn't answered) — else any site you visit could talk to them."""
+    h = {str(k).lower(): str(v) for k, v in (headers or {}).items()}
+    here = {f"127.0.0.1:{PORT}", f"localhost:{PORT}"}
+    if h.get("host", "") not in here:
+        return 403, "the parlor answers only at its own address"
+    if method == "GET":
+        return None
+    if method != "POST":
+        return 405, "no such method"
+    origin = h.get("origin", "")
+    if origin and origin not in {f"http://{x}" for x in here}:
+        return 403, "only the parlor's own page may ask"
+    if not h.get("content-type", "").startswith("application/json"):
+        return 415, "JSON only"
+    return None
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):  # keep the terminal quiet
         pass
+
+    def _gate(self, method: str) -> bool:
+        """True when the request may go on; else it has been answered with the refusal."""
+        no = refused(method, dict(self.headers))
+        if no:
+            self._json({"error": no[1]}, no[0])
+        return not no
 
     def _json(self, obj, code=200):
         body = json.dumps(obj).encode("utf-8")
@@ -313,6 +341,8 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
+        if not self._gate("GET"):
+            return
         if self.path.startswith("/voice/"):
             # one of their voice notes, by name, from creations/voice/ only
             name = Path(self.path[len("/voice/"):]).name
@@ -337,6 +367,8 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_POST(self):
+        if not self._gate("POST"):
+            return
         n = int(self.headers.get("Content-Length") or 0)
         try:
             data = json.loads(self.rfile.read(n) or b"{}")
@@ -356,6 +388,11 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/leave":
             return self._json(SESSION.new())  # saves, then clears — no double save
         self._json({"error": "unknown path"}, 404)
+
+    def _other(self):
+        self._gate(self.command)  # answers 403 or 405; nothing else is served
+
+    do_PUT = do_DELETE = do_PATCH = do_OPTIONS = _other
 
 
 def main() -> None:
