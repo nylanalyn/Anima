@@ -405,7 +405,8 @@ def main() -> None:
     url = f"http://{HOST}:{PORT}"
     print(f"The parlor is open: {url}")
     print("Close the visit with the 'leave' button, Ctrl+C here, or this window's X — all three save it.")
-    threading.Timer(0.6, lambda: webbrowser.open(url)).start()
+    if not os.environ.get("ANIMA_HEADLESS", "").strip():  # headless (a container): the panel's page opens it
+        threading.Timer(0.6, lambda: webbrowser.open(url)).start()
     threading.Thread(target=SESSION.ticker, daemon=True).start()  # the pause bell
     chat.guard_console_close(lambda: SESSION.new(reflect=False))  # the window's X saves the visit too
     try:

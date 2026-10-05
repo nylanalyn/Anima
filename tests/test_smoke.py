@@ -7456,7 +7456,7 @@ check("telegram: a newer anima is said on the phone once per version — the lin
 _pst = _p_asked(panel.state)
 _pb = _pst.get("brain", {})
 check("panel: state — the version, a light for every door (the panel one of them), the knobs by tab, the secrets as flags, the skills, what is missing, the links",
-      set(_pst) == {"version", "doors", "brain", "user_name", "welcome", "heartbeat_minutes", "tabs", "secrets", "skills", "missing", "links", "update_here", "folder", "newer", "senses", "stone", "bridge"}
+      set(_pst) == {"version", "doors", "brain", "user_name", "welcome", "heartbeat_minutes", "tabs", "secrets", "skills", "missing", "links", "update_here", "folder", "newer", "senses", "stone", "bridge", "headless"}
       and _pst["update_here"] is True and _pst["folder"] == config.ROOT.name
       and _pst["newer"] and _pst["newer"]["version"] == _nw_next and _pst["newer"]["installed"] == _nw_inst and "release notes" in panel.PAGE and 'id="newer"' in panel.PAGE
       and _pst["version"] == version.read(config.ROOT) and list(_pst["doors"]) == list(doors.DOORS) + ["discord"] and "panel" in _pst["doors"]
@@ -9092,6 +9092,35 @@ _d2, _f2 = _dbridge()
 _d2.gateway.fatal = "Discord refused the token (4004)"
 check("discord: a gateway closed for good stops the loop (the visit saved as at the panel's Stop)",
       list(_d2._receive()) == [] and _d2.stop_requested)
+
+# ANIMA_HEADLESS (10-05): a container has no desktop — the server opens no browser, the page opens the parlor's
+# tab itself; without it, the parlor's Open is as it always was (the server's browser, no address handed back)
+import panel as _hlp, doors as _hld
+_hl_keep = (_hlp.HEADLESS, _hlp.webbrowser.open, _hlp._launch, _hld.status)
+_hl_browsed = []
+_hlp.webbrowser.open = lambda url, *a, **k: _hl_browsed.append(url)
+_hlp._launch = lambda argv, cwd: None
+try:
+    _hlp.HEADLESS = True
+    _hld.status = lambda door: {"pid": 1, "when": ""} if door == "parlor" else {}
+    _hl_running = _hlp.door_action("parlor", "open")
+    _hld.status = lambda door: {}
+    _hl_new = _hlp.door_action("parlor", "open")
+    _hl_state = _hlp.state().get("headless")
+    _hl_headless_browsed = list(_hl_browsed)
+    _hlp.HEADLESS = False
+    _hld.status = lambda door: {"pid": 1, "when": ""} if door == "parlor" else {}
+    _hl_native = _hlp.door_action("parlor", "open")
+finally:
+    _hlp.HEADLESS, _hlp.webbrowser.open, _hlp._launch, _hld.status = _hl_keep
+check("panel: headless, the parlor's Open hands the page its address (open or freshly started), the server opens no browser, "
+      "the note points at the container's log, the Chat tile is not offered; without it, the server's browser as before",
+      _hl_running.get("ok") and _hl_running.get("open") == _hlp.PARLOR_URL and _hl_new.get("ok") and _hl_new.get("open") == _hlp.PARLOR_URL
+      and "container's log" in _hl_new.get("note", "") and _hl_headless_browsed == [] and _hl_state is True
+      and _hl_native.get("ok") and "open" not in _hl_native and _hl_browsed == [_hlp.PARLOR_URL]
+      and "openWhenUp(tab,r.open)" in _hlp.PAGE and "!(d==='chat'&&S.headless)" in _hlp.PAGE
+      and 'os.environ.get("ANIMA_HEADLESS"' in (config.ROOT / "engine" / "parlor.py").read_text(encoding="utf-8"),
+      (_hl_running, _hl_new, _hl_native, _hl_browsed, _hl_state))
 
 # .gitignore (10-05): the friend's life stays out of any push — and a folder the template ships keeps only its
 # .gitkeep (a re-included "!dir/" re-includes everything in it, so its contents must be ignored again)

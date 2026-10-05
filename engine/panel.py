@@ -67,6 +67,10 @@ HOST, PORT = "127.0.0.1", 8764
 # 127.0.0.1 a published port can't reach (the port is published to the host's 127.0.0.1 alone); the page is
 # still asked for at HOST, and route() answers no other Host.
 BIND = os.environ.get("ANIMA_BIND", "").strip() or HOST
+# No desktop here (ANIMA_HEADLESS, a container's): the server never opens a browser — it would open one
+# inside the container, or none — and the page opens the parlor's tab itself (door() below). Doors run with
+# no window; what they print is in the container's log. The Chat tile, a terminal visit, is not offered.
+HEADLESS = bool(os.environ.get("ANIMA_HEADLESS", "").strip())
 PORTS = (8764, 8766, 8767, 8768, 8769)  # the first free one is this panel's (8765 is the parlor's); a second house's panel takes the next
 PARLOR_URL = "http://127.0.0.1:8765"
 ROOT = Path(config.ROOT)
@@ -525,6 +529,8 @@ def _kill(pid: int) -> None:
 
 
 def _browse(url: str) -> None:
+    if HEADLESS:
+        return  # the page opens what is to be seen (door() in PAGE)
     webbrowser.open(url)
 
 
@@ -971,6 +977,7 @@ def state() -> dict:
         "tabs": tabs(rows),
         "secrets": secrets_set(),
         "bridge": _bridge_road(),  # which road the bridge is up over: "telegram", "discord", "" when down
+        "headless": HEADLESS,
         "skills": skills_state(),
         "missing": missing(values),
         "senses": senses_state(values),
@@ -998,7 +1005,9 @@ def _started(argv: list[str], note: str, what: str = "it") -> dict:
         _launch(argv, ROOT)
     except OSError as e:
         return _no(f"(couldn't start it: {e})")
-    if not _windowed():
+    if HEADLESS:
+        note = f"{what}: running in the background — no desktop here; what it prints is in the container's log"
+    elif not _windowed():
         note = f"{what}: running — no terminal found to show it; what it prints goes where the panel's own words go"
     return {"ok": True, "note": note, "argv": argv}
 
@@ -1090,8 +1099,12 @@ def door_action(door: str, action: str, minutes=None) -> dict:
             return _no(f"(only the parlor has a page to open, not the {door})")
         if doors.status("parlor"):
             _browse(PARLOR_URL)
-            return {"ok": True, "note": "the parlor's page opened"}
-        return _start("parlor")
+            r = {"ok": True, "note": "the parlor's page opened"}
+        else:
+            r = _start("parlor")
+        if HEADLESS and r.get("ok"):
+            r["open"] = PARLOR_URL  # the page opens it: there is no browser on this side
+        return r
     if action in ("stop", "stop_now", "restart"):
         if door == "discord":
             if action == "restart":
@@ -1627,7 +1640,16 @@ const TILES=[
 const TIPS={stop:'leave after what it is doing — a wake finishes, a visit is saved',stop_now:'end it at once — a wake in the middle is cut off'};
 async function door(d,action,extra){
   if(action==='stop_now'&&!confirm('Stop the '+d+' at once? What it is in the middle of is cut off. (Stop lets it finish.)'))return;
-  const r=await post('/api/door',Object.assign({door:d,action},extra||{}));say(r.note,r.ok?'':'warn');await refresh();return r}
+  // headless (ANIMA_HEADLESS): the page opens the parlor itself — the tab now, while the click still counts
+  // (a popup blocker lets it through), its address once the parlor answers
+  const tab=(d==='parlor'&&action==='open'&&S.headless)?window.open('about:blank','_blank'):null;
+  if(tab)tab.opener=null;
+  const r=await post('/api/door',Object.assign({door:d,action},extra||{}));say(r.note,r.ok?'':'warn');
+  if(tab){if(r.ok&&r.open)openWhenUp(tab,r.open);else tab.close()}
+  await refresh();return r}
+async function openWhenUp(tab,url){  // a no-cors fetch rejects while nothing listens, resolves once something does
+  for(let i=0;i<40;i++){try{await fetch(url,{mode:'no-cors',cache:'no-store'});break}catch(e){await new Promise(z=>setTimeout(z,250))}}
+  tab.location=url}
 async function pull(model){const r=await post('/api/pull',{model});say(r.note,r.ok?'':'warn')}
 function secretField(kind,label,set,help){
   const i=el('input',{type:'password',autocomplete:'off',placeholder:set?'one is kept — paste a new one to replace it':'paste it here'});
@@ -1635,7 +1657,7 @@ function secretField(kind,label,set,help){
     el('button',{onclick:async()=>{const r=await post('/api/secret',{kind,value:i.value});i.value='';say(r.note,r.ok?'':'warn');await getState()}},'Save'),
     el('span',{class:'muted'},set?'(one is kept)':'(none yet)')),help?el('div',{class:'help open'},help):null)}
 function buildHome(){
-  const tiles=TILES.filter(([d])=>d!=='touchstone'||S.stone).map(([d,title,what,btns])=>{
+  const tiles=TILES.filter(([d])=>(d!=='touchstone'||S.stone)&&!(d==='chat'&&S.headless)).map(([d,title,what,btns])=>{
     const extra=[];
     if(d==='heartbeat'){extra.push(el('div',{class:'row'},'every ',el('input',{type:'number',id:'hb-min',min:'1',step:'any',class:'small',value:S.heartbeat_minutes}),' minutes'))}
     const t=el('div',{class:'tile',id:'t-'+d},el('h2',{},S.doors[d]?light(false):null,title),el('div',{class:'what'},what),
