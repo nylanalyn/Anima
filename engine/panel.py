@@ -63,6 +63,10 @@ except Exception:  # noqa: BLE001
     newer = None  # type: ignore[assignment]
 
 HOST, PORT = "127.0.0.1", 8764
+# The address the server listens on — this machine only. ANIMA_BIND=0.0.0.0 is for a container, whose own
+# 127.0.0.1 a published port can't reach (the port is published to the host's 127.0.0.1 alone); the page is
+# still asked for at HOST, and route() answers no other Host.
+BIND = os.environ.get("ANIMA_BIND", "").strip() or HOST
 PORTS = (8764, 8766, 8767, 8768, 8769)  # the first free one is this panel's (8765 is the parlor's); a second house's panel takes the next
 PARLOR_URL = "http://127.0.0.1:8765"
 ROOT = Path(config.ROOT)
@@ -1833,7 +1837,7 @@ def bind():
     global PORT
     for port in PORTS:
         try:
-            server = _Server((HOST, port), Handler)
+            server = _Server((BIND, port), Handler)
         except OSError:
             continue
         PORT = port

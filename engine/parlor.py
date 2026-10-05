@@ -14,6 +14,7 @@ or Ctrl+C in the terminal, or close the terminal window; all three save.
 from __future__ import annotations
 
 import json
+import os
 import sys
 import threading
 import time
@@ -30,6 +31,7 @@ import ollama_client
 import tools
 
 HOST, PORT = "127.0.0.1", 8765
+BIND = os.environ.get("ANIMA_BIND", "").strip() or HOST  # 0.0.0.0 in a container (panel.BIND says why)
 
 
 class Session:
@@ -362,7 +364,7 @@ def main() -> None:
         print(taken)
         return
     HTTPServer.allow_reuse_address = sys.platform != "win32"  # on Windows SO_REUSEADDR lets two servers share a port (10-02)
-    server = HTTPServer((HOST, PORT), Handler)
+    server = HTTPServer((BIND, PORT), Handler)
     url = f"http://{HOST}:{PORT}"
     print(f"The parlor is open: {url}")
     print("Close the visit with the 'leave' button, Ctrl+C here, or this window's X — all three save it.")
