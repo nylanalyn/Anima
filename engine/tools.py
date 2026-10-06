@@ -2329,6 +2329,16 @@ def _painter_paint(prompt: str, path: Path, size: str) -> dict:
         data = json.loads(r.read().decode("utf-8"))
     if data.get("error"):
         raise RuntimeError(data["error"])
+    if data.get("png_b64"):
+        # a painter elsewhere (one that can't reach this folder — ComfyUI behind a gateway) hands the picture back
+        # instead of writing it: kept here, at the path chosen here, never over a file already there
+        png = base64.b64decode(data.pop("png_b64"))
+        if not png.startswith(b"\x89PNG\r\n\x1a\n"):
+            raise RuntimeError("the painter sent back something that isn't a PNG")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "xb") as fh:  # "x": an existing file is never overwritten
+            fh.write(png)
+        data["path"] = str(path)
     return data
 
 

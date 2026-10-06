@@ -9118,6 +9118,56 @@ _d2.gateway.fatal = "Discord refused the token (4004)"
 check("discord: a gateway closed for good stops the loop (the visit saved as at the panel's Stop)",
       list(_d2._receive()) == [] and _d2.stop_requested)
 
+# a painter elsewhere hands the picture back (10-06; ComfyUI behind a gateway): the engine keeps it at the path it
+# chose — a PNG only, never over a file already there; a local painter's answer (it wrote the file) is as before
+import http.server as _phs, threading as _pth
+_pg_reply = {}
+class _PgH(_phs.BaseHTTPRequestHandler):
+    def log_message(self, *a): pass
+    def do_POST(self):
+        self.rfile.read(int(self.headers.get("Content-Length") or 0))
+        self.send_response(200); self.end_headers(); self.wfile.write(json.dumps(_pg_reply).encode())
+import ast as _pgast
+_pg_g = dict(tools.__dict__)  # earlier checks keep a stand-in in tools._painter_paint: the real one, fresh from the source
+for _node in _pgast.parse(Path(tools.__file__).read_text(encoding="utf-8")).body:
+    if isinstance(_node, _pgast.FunctionDef) and _node.name == "_painter_paint":
+        exec(compile(_pgast.Module([_node], []), tools.__file__, "exec"), _pg_g)
+_pg_fn = _pg_g["_painter_paint"]
+_pg_srv = _phs.HTTPServer(("127.0.0.1", 0), _PgH)
+_pth.Thread(target=_pg_srv.serve_forever, daemon=True).start()
+_pg_keep = (config.PAINTER_URL, _moc_unload := __import__("ollama_client").unload)
+__import__("ollama_client").unload = lambda m: None
+_pg_png = _b64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==")
+_pg_dir = config.CREATIONS_DIR / "drawings"
+_pg_dir.mkdir(parents=True, exist_ok=True)
+_pg_f = _pg_dir / "gateway-test.png"
+_pg_f.unlink(missing_ok=True)
+try:
+    config.PAINTER_URL = f"http://127.0.0.1:{_pg_srv.server_port}"
+    _pg_reply = {"png_b64": _b64.b64encode(_pg_png).decode(), "seed": 7, "seconds": 3.0}
+    _pg_out = _pg_fn("a test", _pg_f, "square")
+    _pg_written = _pg_f.read_bytes() == _pg_png
+    try:
+        _pg_fn("a test", _pg_f, "square"); _pg_again = "overwrote"
+    except FileExistsError:
+        _pg_again = "refused"
+    _pg_reply = {"png_b64": _b64.b64encode(b"<html>not a picture</html>").decode()}
+    try:
+        _pg_fn("a test", _pg_dir / "gateway-bad.png", "square"); _pg_bad = "kept"
+    except RuntimeError:
+        _pg_bad = "refused"
+    _pg_reply = {"path": "/elsewhere/x.png", "seed": 1}
+    _pg_local = _pg_fn("a test", _pg_dir / "gateway-local.png", "square")
+finally:
+    config.PAINTER_URL = _pg_keep[0]; __import__("ollama_client").unload = _pg_keep[1]
+    _pg_srv.shutdown(); _pg_f.unlink(missing_ok=True)
+check("painter elsewhere: a picture handed back is kept at the engine's own path (a PNG only, never over a file already there); "
+      "a painter that wrote its file answers as before",
+      _pg_written and _pg_out.get("path") == str(_pg_f) and "png_b64" not in _pg_out and _pg_out.get("seed") == 7
+      and _pg_again == "refused" and _pg_bad == "refused" and not (_pg_dir / "gateway-bad.png").exists()
+      and _pg_local == {"path": "/elsewhere/x.png", "seed": 1} and not (_pg_dir / "gateway-local.png").exists(),
+      (_pg_out, _pg_again, _pg_bad, _pg_local))
+
 # MUSIC_EARS_OLLAMA (10-05): the music ear as an Ollama model — the GGUF of Music Flamingo's preview with its
 # audio projector — against a fake Ollama: the stream, a repeat-limit abort keeping what came before, the glitches
 # mended, the brain set aside, the hooks routed; empty, the sidecar as before
